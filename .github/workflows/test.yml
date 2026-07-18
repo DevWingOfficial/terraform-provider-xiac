@@ -1,0 +1,37 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go mod download
+      - name: Check Go formatting
+        run: |
+          provider_unformatted="$(gofmt -l .)"
+          if [ -n "$provider_unformatted" ]; then
+            printf '%s\n' "$provider_unformatted"
+            exit 1
+          fi
+      - run: go vet ./...
+      - run: go test ./... -count=1
+      - run: go build ./...
+
+  hcl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: opentofu/setup-opentofu@v2
+      - run: tofu fmt -check examples/main.tf
