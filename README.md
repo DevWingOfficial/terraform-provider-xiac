@@ -1,110 +1,104 @@
 # terraform-provider-xiac
 
-Declare an XIaC cloud account connection as Infrastructure-as-Code. The provider
-talks to the XIaC platform API and manages the lifecycle of a provider
-connection (create → connect/verify → delete) as a Terraform resource.
+Declare XIaC cloud scopes as Infrastructure-as-Code. The provider uses each
+cloud's native identifier and never exposes XIaC database UUIDs.
 
-Built on the current [terraform-plugin-framework](https://github.com/hashicorp/terraform-plugin-framework)
-v1 API.
+For AWS, `account_id` is both the Terraform resource identity and XIaC's generic
+`scope_id`.
 
 ## Installation
-
-The public source repository is ready at
-[`DevWingOfficial/terraform-provider-xiac`](https://github.com/DevWingOfficial/terraform-provider-xiac).
-After the first signed provider release is published, configure the provider as:
 
 ```hcl
 terraform {
   required_providers {
     xiac = {
       source  = "DevWingOfficial/xiac"
-      version = ">= 1.0"
+      version = "~> 1.0"
     }
   }
 }
 ```
 
-The repository source is public, but source publication alone does not make a
-provider version installable. Do not select `>= 1.0` until the corresponding
-signed release is available from the Terraform/OpenTofu registry.
+The repository is public, but no release tag is created until this provider and
+the `XiaCOrg/xiac-aws-account/aws` module pass together end to end.
 
 ## Provider configuration
 
 ```hcl
-provider "xiac" {
-  api_key  = var.xiac_api_key       # optional; falls back to XIAC_API_KEY
-  endpoint = "http://127.0.0.1:8099" # optional; falls back to XIAC_ENDPOINT, default https://api.xiac.co (hosted platform)
-}
+provider "xiac" {}
 ```
 
-| Attribute  | Type   | Required | Description                                                                                     |
-|------------|--------|----------|-------------------------------------------------------------------------------------------------|
-| `api_key`  | string | no\*     | Tenant API key sent as the `X-Api-Key` header. Falls back to `XIAC_API_KEY`. Sensitive.         |
-| `endpoint` | string | no       | Platform base URL. Falls back to `XIAC_ENDPOINT`, then defaults to the hosted `https://api.xiac.co`.      |
+| Attribute | Environment fallback | Required | Description |
+| --- | --- | --- | --- |
+| `api_key` | `XIAC_API_KEY` | yes, by either source | Tenant API key sent as `X-Api-Key`. |
+| `endpoint` | `XIAC_ENDPOINT` | no | Platform URL; defaults to `https://api.xiac.co`. |
 
-\* `api_key` must be resolvable from either the config block or `XIAC_API_KEY`;
-the provider errors during configure if it is empty.
+Local development:
+
+```sh
+export XIAC_API_KEY='tenant-key'
+export XIAC_ENDPOINT='http://127.0.0.1:8099'
+```
 
 ## Resource: `xiac_aws_account`
 
-Connects one AWS account to XIaC via a cross-account **read-only** role.
-
 ```hcl
+data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
-resource "xiac_aws_account" "demo" {
-  iam_role    = aws_iam_role.xiac_role.arn
+resource "xiac_aws_account" "this" {
+  account_id  = data.aws_caller_identity.current.account_id
+  iam_role    = aws_iam_role.xiac.arn
   external_id = random_uuid.xiac_external_id.result
   sts_region  = data.aws_region.current.region
-  regions     = ["us-east-1"]
+  regions     = []
   readonly    = true
 }
 ```
 
 ### Arguments
 
-| Attribute | Type | Required | Default | Description |
-|------------|------|----------|---------|-------------|
-| `provider_id` | string | no | — | Existing tenant-scoped provider ID from XIaC app onboarding. Omit for standalone creation. |
-| `iam_role` | string | yes | — | The cross-account IAM role ARN XIaC assumes to scan the account. |
-| `external_id` | string | yes | — | Client-generated UUID used in both the AWS trust policy and XIaC registration. |
-| `sts_region` | string | yes | — | AWS region used for the STS AssumeRole bootstrap call. |
-| `regions` | list(string) | no | — | AWS regions to scan. Empty means the platform's default region set. |
-| `readonly` | bool | no | `true` | Only `true` is supported today; setting `false` returns an error. |
+| Attribute | Required | Default | Description |
+| --- | --- | --- | --- |
+| `account_id` | yes | - | AWS account ID and public XIaC scope identity. |
+| `iam_role` | yes | - | Cross-account role ARN XIaC assumes. |
+| `external_id` | yes | - | Client-generated UUID used in AWS trust and XIaC registration. |
+| `sts_region` | yes | - | Region for the STS AssumeRole bootstrap call. |
+| `regions` | no | `[]` | Scan regions; empty lets XIaC resolve enabled regions. |
+| `readonly` | no | `true` | Must remain true. Write-capable roles are rejected. |
 
-### Attributes (computed)
+`status` is computed after XIaC verifies the connection. There is no `id` or
+internal provider identifier in the schema or Terraform state.
 
-| Attribute     | Description                                                        |
-|---------------|--------------------------------------------------------------------|
-| `id`          | Platform-assigned provider id.                                     |
-| `account_id`  | The AWS account id discovered when the role is verified.           |
-| `status`      | Connection status (e.g. `connected`, `error`).                     |
+Changing `account_id` or `external_id` replaces the resource. Read, update, and
+delete operations resolve the authenticated tenant's `aws + account_id` scope.
 
-## External ID ownership
+## Recommended AWS module
 
-The client generates the External ID before either side is created. Use a
-`random_uuid` resource, put its `result` in the IAM role's `sts:ExternalId`
-condition, and pass the same value to `xiac_aws_account.external_id`. XIaC
-validates and stores that UUID verbatim; it does not generate a replacement.
+Most users should use the zero-required-variable module, which creates the
+External ID, AWS trust, read-only role, and this resource together:
 
-This removes the creation-order cycle: Terraform can create the UUID and role,
-then register and verify the account with XIaC in one dependency graph. See
-[`examples/main.tf`](examples/main.tf) for the complete wiring.
+```hcl
+module "xiac_aws_account" {
+  source  = "XiaCOrg/xiac-aws-account/aws"
+  version = "~> 1.0"
+}
+```
 
-## App-driven adoption
+## Security
 
-When XIaC web onboarding has already created the pending provider, pass its
-`provider_id` and the exact same `external_id`. The provider reads that
-tenant-scoped record, rejects any External ID mismatch, updates its STS/scan
-regions, and connects the role. Adoption never falls back to creating a second
-provider after an error.
+- Generate the External ID on the client and use the same UUID in both systems.
+- XIaC verifies `sts:GetCallerIdentity` matches the requested `account_id`.
+- XIaC rejects a role proven to allow writes.
+- Keep the tenant API key in provider configuration or `XIAC_API_KEY`, never in
+  module inputs or committed variable files.
 
 ## Development
 
 ```sh
+gofmt -w internal cmd
+go vet ./...
+go test ./... -count=1
 go build ./...
-go test ./...
+tofu fmt -check -recursive
 ```
-
-Acceptance tests (if added) are gated behind `TF_ACC` per the framework
-convention and are not run by `go test ./...`.

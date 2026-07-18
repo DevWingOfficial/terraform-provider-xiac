@@ -28,10 +28,16 @@ jobs:
       - run: go vet ./...
       - run: go test ./... -count=1
       - run: go build ./...
+      - name: Reject internal provider identity in public production files
+        run: |
+          if rg -n 'provider_id|tfsdk:"id"' README.md examples internal/provider --glob '!**/*_test.go'; then
+            exit 1
+          fi
+      - run: git diff --check
 
   hcl:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: opentofu/setup-opentofu@v2
-      - run: tofu fmt -check examples/main.tf
+      - run: tofu fmt -check -recursive
