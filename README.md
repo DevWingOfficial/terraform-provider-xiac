@@ -20,7 +20,7 @@ terraform {
 ```
 
 The repository is public, but no release tag is created until this provider and
-the `XiaCOrg/xiac-aws-account/aws` module pass together end to end.
+the `XiaCOrg/aws-account/xiac` module pass together end to end.
 
 ## Provider configuration
 
@@ -80,7 +80,7 @@ External ID, AWS trust, read-only role, and this resource together:
 
 ```hcl
 module "xiac_aws_account" {
-  source  = "XiaCOrg/xiac-aws-account/aws"
+  source  = "XiaCOrg/aws-account/xiac"
   version = "~> 1.0"
 }
 ```
