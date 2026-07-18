@@ -8,7 +8,7 @@ terraform {
       source = "hashicorp/random"
     }
     xiac = {
-      source = "DevWingOfficial/xiac"
+      source = "XiaCOrg/xiac"
     }
   }
 }

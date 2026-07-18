@@ -12,7 +12,7 @@ For AWS, `account_id` is both the Terraform resource identity and XIaC's generic
 terraform {
   required_providers {
     xiac = {
-      source  = "DevWingOfficial/xiac"
+      source  = "XiaCOrg/xiac"
       version = "~> 1.0"
     }
   }

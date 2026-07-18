@@ -1,4 +1,4 @@
-module github.com/DevWingOfficial/terraform-provider-xiac
+module github.com/XiaCOrg/terraform-provider-xiac
 
 go 1.26.4
 
